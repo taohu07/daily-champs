@@ -167,6 +167,52 @@ p.hint { color: var(--text-soft); font-size: 15px; line-height: 1.4; }
 .card.clickable { transition: transform .12s ease; }
 .card.clickable:active { transform: scale(0.97); }
 
+/* ---------- Progress bar (multi-day challenges) ---------- */
+.progress-bar {
+  background: rgba(0,0,0,0.08);
+  border-radius: 999px;
+  height: 8px;
+  margin: 8px 0 6px;
+  overflow: hidden;
+}
+.progress-fill {
+  background: var(--accent);
+  height: 100%;
+  border-radius: 999px;
+}
+
+/* ---------- Campaign calendar ---------- */
+.campaign-calendar {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 6px;
+  margin: 14px 0;
+}
+.cal-head {
+  text-align: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-soft);
+  padding-bottom: 2px;
+}
+.cal-cell {
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  background: rgba(0,0,0,0.05);
+  color: var(--text-soft);
+}
+.cal-blank { background: transparent; }
+.cal-done { background: var(--approved); color: white; }
+.cal-pending { background: var(--pending); color: white; }
+.cal-missed { opacity: 0.45; }
+.cal-future { opacity: 0.3; }
+.cal-today { box-shadow: 0 0 0 2px var(--accent) inset; }
+
 /* ---------- Buttons ---------- */
 .btn {
   display: flex;
@@ -383,7 +429,7 @@ p.hint { color: var(--text-soft); font-size: 15px; line-height: 1.4; }
   color: var(--text-soft);
   margin-bottom: 6px;
 }
-.field input[type=text], .field input[type=number], .field select {
+.field input[type=text], .field input[type=number], .field input[type=date], .field select {
   width: 100%;
   padding: 12px 14px;
   border-radius: var(--radius-sm);

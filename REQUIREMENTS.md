@@ -59,6 +59,14 @@ a simple avatar switcher — this stays local/offline, no accounts.
 - FR16: A daily streak counter increments when a kid gets at least one approval on a given day, and resets if a full day passes with none.
 - FR17: Badges auto-award at milestones (e.g., 7-day streak, 50 total points, first swim challenge) — a fixed starter set, not configurable in v1.
 
+### 4.5a Multi-day ("campaign") challenges
+- FR17a: Parent can mark a challenge as multi-day with a target duration (7/30/75/100-day presets or custom) and a start date.
+- FR17b: Each day within the window, the kid checks in exactly like a regular challenge (same photo-proof and approval flow); the check-in does not pay out points on its own.
+- FR17c: Progress is cumulative, not a hard streak — a missed day simply isn't checked and doesn't reset the count; the kid keeps going until the target number of approved days is reached, however long that takes.
+- FR17d: The full point value is paid out once, the moment the approved-day count reaches the target. A challenge can only pay out once per kid.
+- FR17e: Kid Mode shows a calendar (start date, today, and days remaining) alongside the running count (e.g. "12 of 30 days").
+- FR17f: Once complete for a kid, the challenge drops off that kid's daily list.
+
 ### 4.6 Prizes
 - FR18: Parent defines prizes: name, icon, point cost, optional "real-world" flag.
 - FR19: Kid can redeem any prize they have enough points for; points are deducted immediately and the redemption enters "Pending fulfillment."

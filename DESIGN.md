@@ -120,7 +120,10 @@ Challenge {
   points, requiresPhoto: bool,
   frequency: 'daily' | number[] (0-6 weekdays),
   assignedKidIds: string[],
-  active: bool
+  active: bool,
+  durationDays: number | null,      // set => this is a multi-day "campaign" challenge
+  startDate: string | null,         // YYYY-MM-DD, campaign window start
+  campaignAwardedKidIds: string[]   // kids already paid the lump sum (idempotency)
 }
 
 Completion {

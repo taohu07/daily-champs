@@ -22,7 +22,8 @@
     { id: 'firstwrite', emoji: '✍️', name: 'Wordsmith', desc: 'Complete a writing challenge', check: function (s) { return s.hasWrite; } },
     { id: 'tendown', emoji: '🏆', name: '10 Down', desc: 'Complete 10 challenges', check: function (s) { return s.completedCount >= 10; } },
     { id: 'century', emoji: '💯', name: 'Century', desc: 'Earn 100 points total', check: function (s) { return s.totalEarned >= 100; } },
-    { id: 'streak30', emoji: '🌟', name: 'Month Master', desc: 'Get a 30-day streak', check: function (s) { return s.bestStreak >= 30; } }
+    { id: 'streak30', emoji: '🌟', name: 'Month Master', desc: 'Get a 30-day streak', check: function (s) { return s.bestStreak >= 30; } },
+    { id: 'journey', emoji: '🗓️', name: 'Journey Complete', desc: 'Finish a multi-day challenge', check: function (s) { return s.hasCampaignComplete; } }
   ];
 
   // ---------------- State ----------------
@@ -78,6 +79,8 @@
   function todayStr() { var d = new Date(); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
   function dateStrOffset(deltaDays) { var d = new Date(); d.setDate(d.getDate() + deltaDays); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
   function weekdayOf(dateStr) { return new Date(dateStr + 'T00:00:00').getDay(); }
+  function addDaysStr(dateStr, n) { var d = new Date(dateStr + 'T00:00:00'); d.setDate(d.getDate() + n); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
+  function formatDateShort(dateStr) { return new Date(dateStr + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' }); }
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (ch) {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
@@ -89,10 +92,24 @@
   }
   function getTodaysChallengesForKid(kidId) {
     var wd = weekdayOf(todayStr());
+    var today = todayStr();
     return data.challenges.filter(function (c) {
-      return c.active && c.assignedKidIds.indexOf(kidId) !== -1 &&
-        (c.frequency === 'daily' || (Array.isArray(c.frequency) && c.frequency.indexOf(wd) !== -1));
+      if (!c.active || c.assignedKidIds.indexOf(kidId) === -1) return false;
+      if (c.durationDays) {
+        if (c.startDate && today < c.startDate) return false;
+        return !getCampaignProgress(c, kidId).isComplete;
+      }
+      return c.frequency === 'daily' || (Array.isArray(c.frequency) && c.frequency.indexOf(wd) !== -1);
     });
+  }
+  function getCampaignProgress(challenge, kidId) {
+    var start = challenge.startDate || todayStr();
+    var relevant = data.completions.filter(function (c) { return c.challengeId === challenge.id && c.kidId === kidId && c.date >= start; });
+    var approvedCount = relevant.filter(function (c) { return c.status === 'approved'; }).length;
+    var pendingDays = relevant.filter(function (c) { return c.status === 'pending'; }).length;
+    var total = challenge.durationDays || 0;
+    var remaining = Math.max(0, total - approvedCount);
+    return { approvedCount: approvedCount, pendingCount: pendingDays, total: total, remaining: remaining, isComplete: total > 0 && approvedCount >= total, startDate: start };
   }
   function pendingCount() { return data.completions.filter(function (c) { return c.status === 'pending'; }).length; }
 
@@ -146,7 +163,8 @@
       completedCount: approved.length,
       hasSwim: categoryHas('swimming'),
       hasRead: categoryHas('reading'),
-      hasWrite: categoryHas('writing')
+      hasWrite: categoryHas('writing'),
+      hasCampaignComplete: data.challenges.some(function (ch) { return ch.durationDays && ch.campaignAwardedKidIds && ch.campaignAwardedKidIds.indexOf(kid.id) !== -1; })
     };
     BADGES.forEach(function (b) {
       var already = data.badgesEarned.some(function (x) { return x.kidId === kid.id && x.badgeId === b.id; });
@@ -165,8 +183,19 @@
     comp.status = 'approved';
     comp.decidedAt = Date.now();
     if (kid && c) {
-      kid.points += c.points;
-      kid.totalEarned = (kid.totalEarned || 0) + c.points;
+      if (c.durationDays) {
+        if (!c.campaignAwardedKidIds) c.campaignAwardedKidIds = [];
+        var progress = getCampaignProgress(c, kid.id);
+        if (progress.isComplete && c.campaignAwardedKidIds.indexOf(kid.id) === -1) {
+          kid.points += c.points;
+          kid.totalEarned = (kid.totalEarned || 0) + c.points;
+          c.campaignAwardedKidIds.push(kid.id);
+          celebrate('🏆 ' + c.title + ' complete! +' + c.points + ' points!');
+        }
+      } else {
+        kid.points += c.points;
+        kid.totalEarned = (kid.totalEarned || 0) + c.points;
+      }
       updateStreak(kid);
       checkBadges(kid);
     }
@@ -287,8 +316,8 @@
   function openEditChallenge(id) {
     var c = id ? data.challenges.find(function (x) { return x.id === id; }) : null;
     challengeDraft = c
-      ? { id: c.id, title: c.title, category: c.category, points: c.points, requiresPhoto: c.requiresPhoto, frequency: c.frequency, assignedKidIds: c.assignedKidIds.slice(), active: c.active }
-      : { id: null, title: '', category: 'reading', points: 10, requiresPhoto: false, frequency: 'daily', assignedKidIds: data.kids.map(function (k) { return k.id; }), active: true };
+      ? { id: c.id, title: c.title, category: c.category, points: c.points, requiresPhoto: c.requiresPhoto, frequency: c.frequency, assignedKidIds: c.assignedKidIds.slice(), active: c.active, durationDays: c.durationDays || null, startDate: c.startDate || null }
+      : { id: null, title: '', category: 'reading', points: 10, requiresPhoto: false, frequency: 'daily', assignedKidIds: data.kids.map(function (k) { return k.id; }), active: true, durationDays: null, startDate: null };
     ui.sheet = { type: 'editChallenge' };
     renderApp();
   }
@@ -306,11 +335,23 @@
     var points = pointsEl ? Math.max(1, parseInt(pointsEl.value, 10) || 10) : challengeDraft.points;
     if (!title) { toast('Please enter a title'); return; }
     if (!challengeDraft.assignedKidIds.length) { toast('Pick at least one kid'); return; }
+
+    var isCampaign = !!challengeDraft.durationDays;
+    var durationDays = null, startDate = null, frequency = challengeDraft.frequency;
+    if (isCampaign) {
+      var durationEl = document.getElementById('challenge-duration-input');
+      durationDays = Math.max(2, parseInt(durationEl ? durationEl.value : challengeDraft.durationDays, 10) || challengeDraft.durationDays);
+      var startEl = document.getElementById('challenge-startdate-input');
+      startDate = (startEl && startEl.value) ? startEl.value : (challengeDraft.startDate || todayStr());
+      frequency = 'daily';
+    }
+
     if (challengeDraft.id) {
       var c = data.challenges.find(function (x) { return x.id === challengeDraft.id; });
-      Object.assign(c, { title: title, category: challengeDraft.category, points: points, requiresPhoto: challengeDraft.requiresPhoto, frequency: challengeDraft.frequency, assignedKidIds: challengeDraft.assignedKidIds, active: challengeDraft.active });
+      Object.assign(c, { title: title, category: challengeDraft.category, points: points, requiresPhoto: challengeDraft.requiresPhoto, frequency: frequency, assignedKidIds: challengeDraft.assignedKidIds, active: challengeDraft.active, durationDays: durationDays, startDate: startDate });
+      if (!c.campaignAwardedKidIds) c.campaignAwardedKidIds = [];
     } else {
-      data.challenges.push({ id: uid(), title: title, category: challengeDraft.category, points: points, requiresPhoto: challengeDraft.requiresPhoto, frequency: challengeDraft.frequency, assignedKidIds: challengeDraft.assignedKidIds, active: true });
+      data.challenges.push({ id: uid(), title: title, category: challengeDraft.category, points: points, requiresPhoto: challengeDraft.requiresPhoto, frequency: frequency, assignedKidIds: challengeDraft.assignedKidIds, active: true, durationDays: durationDays, startDate: startDate, campaignAwardedKidIds: [] });
     }
     challengeDraft = null; ui.sheet = null;
     saveData(); renderApp();
@@ -444,6 +485,9 @@
       case 'open-complete':
         pendingPhoto = null; ui.sheet = { type: 'complete', challengeId: id };
         break;
+      case 'open-campaign':
+        pendingPhoto = null; ui.sheet = { type: 'campaign', challengeId: id };
+        break;
       case 'open-pending':
         ui.sheet = { type: 'pending', challengeId: id };
         break;
@@ -492,6 +536,16 @@
         challengeDraft.frequency = 'daily'; break;
       case 'toggle-frequency-day':
         toggleFrequencyDay(id); return;
+      case 'toggle-campaign':
+        challengeDraft.durationDays = challengeDraft.durationDays ? null : 30;
+        if (challengeDraft.durationDays) {
+          challengeDraft.startDate = challengeDraft.startDate || todayStr();
+          challengeDraft.frequency = 'daily';
+        }
+        break;
+      case 'pick-duration-preset':
+        challengeDraft.durationDays = parseInt(id, 10);
+        break;
       case 'toggle-photo-required':
         challengeDraft.requiresPhoto = !challengeDraft.requiresPhoto; break;
       case 'toggle-assigned-kid': {
@@ -640,6 +694,7 @@
   }
 
   function challengeCard(c, kid) {
+    if (c.durationDays) return campaignChallengeCard(c, kid);
     var comp = getCompletion(c.id, kid.id, todayStr());
     var pill, action = 'open-complete';
     if (!comp) {
@@ -658,6 +713,23 @@
       '<div class="emoji">' + (CATEGORY_ICONS[c.category] || '⭐') + '</div>' +
       '<div class="body"><div class="title">' + esc(c.title) + '</div>' +
       '<div class="sub">⭐ ' + c.points + ' pts' + (c.requiresPhoto ? ' · 📷 photo needed' : '') + '</div>' +
+      pill + '</div></div>';
+  }
+
+  function campaignChallengeCard(c, kid) {
+    var progress = getCampaignProgress(c, kid.id);
+    var comp = getCompletion(c.id, kid.id, todayStr());
+    var pill;
+    if (comp && comp.status === 'pending') pill = '<span class="pill pending">⏳ Waiting for approval</span>';
+    else if (comp && comp.status === 'approved') pill = '<span class="pill approved">✅ Checked in today</span>';
+    else if (comp && comp.status === 'rejected') pill = '<span class="pill tryagain">🔁 Try again</span>';
+    else pill = '<span class="pill todo">⬜ Check in today</span>';
+    var pct = progress.total ? Math.min(100, Math.round(progress.approvedCount / progress.total * 100)) : 0;
+    return '<div class="card clickable" data-action="open-campaign" data-id="' + c.id + '">' +
+      '<div class="emoji">' + (CATEGORY_ICONS[c.category] || '⭐') + '</div>' +
+      '<div class="body"><div class="title">' + esc(c.title) + '</div>' +
+      '<div class="sub">🗓️ ' + progress.approvedCount + ' of ' + progress.total + ' days · 🏆 ' + c.points + ' pts when done</div>' +
+      '<div class="progress-bar"><div class="progress-fill" style="width:' + pct + '%"></div></div>' +
       pill + '</div></div>';
   }
 
@@ -751,7 +823,9 @@
 
   function renderManageChallenges() {
     var rows = data.challenges.map(function (c) {
-      var freq = c.frequency === 'daily' ? 'Every day' : c.frequency.map(function (d) { return WEEKDAYS[d]; }).join(', ');
+      var freq = c.durationDays
+        ? ('🗓️ ' + c.durationDays + '-day · starts ' + formatDateShort(c.startDate))
+        : (c.frequency === 'daily' ? 'Every day' : c.frequency.map(function (d) { return WEEKDAYS[d]; }).join(', '));
       return '<div class="list-row"><span style="font-size:26px;">' + (CATEGORY_ICONS[c.category] || '⭐') + '</span>' +
         '<div class="grow"><div class="title">' + esc(c.title) + (c.active ? '' : ' (inactive)') + '</div>' +
         '<div class="sub">⭐ ' + c.points + ' · ' + freq + (c.requiresPhoto ? ' · 📷' : '') + '</div></div>' +
@@ -799,7 +873,13 @@
     var weekApproved = data.completions.filter(function (c) { return c.kidId === kid.id && c.status === 'approved' && days.indexOf(c.date) !== -1; });
     var weekPoints = weekApproved.reduce(function (sum, c) {
       var ch = data.challenges.find(function (x) { return x.id === c.challengeId; });
-      return sum + (ch ? ch.points : 0);
+      if (!ch) return sum;
+      if (ch.durationDays) {
+        var chApproved = data.completions.filter(function (x) { return x.challengeId === ch.id && x.kidId === kid.id && x.status === 'approved'; }).sort(function (a, b) { return a.date < b.date ? -1 : (a.date > b.date ? 1 : 0); });
+        var payoutCompletion = chApproved[ch.durationDays - 1];
+        return sum + (payoutCompletion && payoutCompletion.id === c.id ? ch.points : 0);
+      }
+      return sum + ch.points;
     }, 0);
 
     var logRows = days.slice().reverse().map(function (date) {
@@ -827,6 +907,7 @@
     switch (ui.sheet.type) {
       case 'switchKid': return renderSwitchKidSheet();
       case 'complete': return renderCompleteSheet(ui.sheet.challengeId);
+      case 'campaign': return renderCampaignSheet(ui.sheet.challengeId);
       case 'pending': return renderPendingSheet(ui.sheet.challengeId);
       case 'redeem': return renderRedeemSheet(ui.sheet.prizeId);
       case 'reject': return renderRejectSheet(ui.sheet.completionId);
@@ -880,6 +961,73 @@
       '</div></div>';
   }
 
+  function renderCampaignSheet(challengeId) {
+    var c = data.challenges.find(function (x) { return x.id === challengeId; });
+    var kid = getActiveKid();
+    if (!c || !kid) return '';
+    var progress = getCampaignProgress(c, kid.id);
+    var comp = getCompletion(c.id, kid.id, todayStr());
+    var calendar = renderCampaignCalendar(c, kid.id, progress);
+
+    var actionArea;
+    if (progress.isComplete) {
+      actionArea = '<div class="pill approved" style="justify-content:center;width:100%;box-sizing:border-box;">🏆 Challenge complete!</div>';
+    } else if (comp && comp.status === 'pending') {
+      actionArea = '<p class="hint" style="text-align:center;">⏳ Waiting for a grown-up to approve today\'s check-in.</p>';
+    } else if (comp && comp.status === 'approved') {
+      actionArea = '<p class="hint" style="text-align:center;">✅ Today\'s check-in is approved. Come back tomorrow!</p>';
+    } else {
+      var canSubmit = !c.requiresPhoto || !!pendingPhoto;
+      actionArea = (comp && comp.status === 'rejected' ? '<p class="hint" style="text-align:center;">🔁 ' + (comp.rejectReason ? esc(comp.rejectReason) : 'Try again today.') + '</p>' : '') +
+        (c.requiresPhoto ? (
+          (pendingPhoto ? '<img class="photo-preview" src="' + pendingPhoto + '" />' : '') +
+          '<input type="file" accept="image/*" capture="environment" id="photo-input" style="display:none" />' +
+          '<button class="btn btn-outline" data-action="pick-photo">' + (pendingPhoto ? '📷 Retake photo' : '📷 Add photo') + '</button><div style="height:10px"></div>'
+        ) : '') +
+        '<button class="btn btn-primary" data-action="submit-complete" data-id="' + c.id + '" ' + (canSubmit ? '' : 'disabled') + '>Check in today</button>';
+    }
+
+    return '<div class="sheet-backdrop" data-action="close-sheet"><div class="sheet" data-action="none">' +
+      '<div class="sheet-handle"></div>' +
+      '<div class="emoji-big">' + (CATEGORY_ICONS[c.category] || '⭐') + '</div>' +
+      '<h2>' + esc(c.title) + '</h2>' +
+      '<p class="hint" style="text-align:center;">Started ' + formatDateShort(progress.startDate) + ' · ' + progress.approvedCount + ' of ' + progress.total + ' days · 🏆 ' + c.points + ' pts when finished' +
+      (progress.remaining > 0 ? ' · ' + progress.remaining + ' to go' : '') + '</p>' +
+      calendar +
+      '<div style="height:4px"></div>' +
+      actionArea +
+      '<div style="height:8px"></div>' +
+      '<button class="btn btn-outline" data-action="close-sheet">Close</button>' +
+      '</div></div>';
+  }
+
+  function renderCampaignCalendar(c, kidId, progress) {
+    var today = todayStr();
+    var start = progress.startDate;
+    var plannedEnd = addDaysStr(start, c.durationDays - 1);
+    var displayEnd = plannedEnd > today ? plannedEnd : today;
+    var d0 = new Date(start + 'T00:00:00');
+    var d1 = new Date(displayEnd + 'T00:00:00');
+    var totalCells = Math.round((d1 - d0) / 86400000) + 1;
+    var leadBlank = weekdayOf(start);
+    var headCells = WEEKDAYS.map(function (w) { return '<div class="cal-head">' + w[0] + '</div>'; }).join('');
+    var blanks = '';
+    for (var i = 0; i < leadBlank; i++) blanks += '<div class="cal-cell cal-blank"></div>';
+    var dayCells = '';
+    for (var j = 0; j < totalCells; j++) {
+      var dateStr = addDaysStr(start, j);
+      var comp = getCompletion(c.id, kidId, dateStr);
+      var cls = 'cal-cell';
+      if (comp && comp.status === 'approved') cls += ' cal-done';
+      else if (comp && comp.status === 'pending') cls += ' cal-pending';
+      else if (dateStr < today) cls += ' cal-missed';
+      else if (dateStr > today) cls += ' cal-future';
+      if (dateStr === today) cls += ' cal-today';
+      dayCells += '<div class="' + cls + '">' + new Date(dateStr + 'T00:00:00').getDate() + '</div>';
+    }
+    return '<div class="campaign-calendar">' + headCells + blanks + dayCells + '</div>';
+  }
+
   function renderRedeemSheet(prizeId) {
     var p = data.prizes.find(function (x) { return x.id === prizeId; });
     var kid = getActiveKid();
@@ -921,6 +1069,7 @@
   function renderEditChallengeSheet() {
     var d = challengeDraft;
     var categories = Object.keys(CATEGORY_ICONS);
+    var isCampaign = !!d.durationDays;
     var isDaily = d.frequency === 'daily';
     var catChips = categories.map(function (cat) {
       return '<button class="chip ' + (d.category === cat ? 'selected' : '') + '" data-action="pick-category" data-id="' + cat + '">' + CATEGORY_ICONS[cat] + ' ' + cat + '</button>';
@@ -932,13 +1081,22 @@
     var kidChips = data.kids.map(function (k) {
       return '<button class="chip ' + (d.assignedKidIds.indexOf(k.id) !== -1 ? 'selected' : '') + '" data-action="toggle-assigned-kid" data-id="' + k.id + '">' + k.avatar + ' ' + esc(k.name) + '</button>';
     }).join('');
+    var durationChips = [7, 30, 75, 100].map(function (n) {
+      return '<button class="chip ' + (d.durationDays === n ? 'selected' : '') + '" data-action="pick-duration-preset" data-id="' + n + '">' + n + ' days</button>';
+    }).join('');
+    var frequencySection = isCampaign
+      ? '<div class="field"><label>How many days</label><div class="chip-select">' + durationChips + '</div>' +
+        '<input type="number" min="2" max="365" id="challenge-duration-input" value="' + (d.durationDays || 30) + '" oninput="window.__dc.updateChallengeDraft(\'durationDays\', parseInt(this.value,10)||30)" style="margin-top:8px;" /></div>' +
+        '<div class="field"><label>Start date</label><input type="date" id="challenge-startdate-input" value="' + (d.startDate || '') + '" oninput="window.__dc.updateChallengeDraft(\'startDate\', this.value)" /></div>'
+      : '<div class="field"><label>How often</label><div class="chip-select">' +
+        '<button class="chip ' + (isDaily ? 'selected' : '') + '" data-action="set-frequency-daily">Every day</button>' + dayChips + '</div></div>';
     return '<div class="sheet-backdrop" data-action="close-sheet"><div class="sheet" data-action="none">' +
       '<div class="sheet-handle"></div><h2>' + (d.id ? 'Edit Challenge' : 'Add Challenge') + '</h2>' +
       '<div class="field"><label>Title</label><input type="text" id="challenge-title-input" value="' + esc(d.title) + '" oninput="window.__dc.updateChallengeDraft(\'title\', this.value)" placeholder="e.g. Read 15 minutes" /></div>' +
       '<div class="field"><label>Category</label><div class="chip-select">' + catChips + '</div></div>' +
-      '<div class="field"><label>Points</label><input type="number" min="1" max="100" id="challenge-points-input" value="' + d.points + '" oninput="window.__dc.updateChallengeDraft(\'points\', this.value)" /></div>' +
-      '<div class="field"><label>How often</label><div class="chip-select">' +
-      '<button class="chip ' + (isDaily ? 'selected' : '') + '" data-action="set-frequency-daily">Every day</button>' + dayChips + '</div></div>' +
+      '<div class="field"><label>Points' + (isCampaign ? ' (all at once when finished)' : '') + '</label><input type="number" min="1" max="1000" id="challenge-points-input" value="' + d.points + '" oninput="window.__dc.updateChallengeDraft(\'points\', this.value)" /></div>' +
+      '<div class="toggle-row"><span>🗓️ Multi-day challenge (30, 75 days...)</span><button class="switch ' + (isCampaign ? 'on' : '') + '" data-action="toggle-campaign"></button></div>' +
+      frequencySection +
       '<div class="toggle-row"><span>📷 Require photo proof</span><button class="switch ' + (d.requiresPhoto ? 'on' : '') + '" data-action="toggle-photo-required"></button></div>' +
       '<div class="field"><label>Who\'s this for</label><div class="chip-select">' + (kidChips || '<p class="hint">Add a kid first.</p>') + '</div></div>' +
       (d.id ? '<div class="toggle-row"><span>Active</span><button class="switch ' + (d.active ? 'on' : '') + '" data-action="toggle-challenge-active"></button></div>' : '') +
