@@ -315,8 +315,9 @@
 
   function openEditChallenge(id) {
     var c = id ? data.challenges.find(function (x) { return x.id === id; }) : null;
+    var editPoints = (c && c.durationDays) ? Math.max(1, Math.round(c.points / c.durationDays)) : (c ? c.points : 10);
     challengeDraft = c
-      ? { id: c.id, title: c.title, category: c.category, points: c.points, requiresPhoto: c.requiresPhoto, frequency: c.frequency, assignedKidIds: c.assignedKidIds.slice(), active: c.active, durationDays: c.durationDays || null, startDate: c.startDate || null }
+      ? { id: c.id, title: c.title, category: c.category, points: editPoints, requiresPhoto: c.requiresPhoto, frequency: c.frequency, assignedKidIds: c.assignedKidIds.slice(), active: c.active, durationDays: c.durationDays || null, startDate: c.startDate || null }
       : { id: null, title: '', category: 'reading', points: 10, requiresPhoto: false, frequency: 'daily', assignedKidIds: data.kids.map(function (k) { return k.id; }), active: true, durationDays: null, startDate: null };
     ui.sheet = { type: 'editChallenge' };
     renderApp();
@@ -344,6 +345,7 @@
       var startEl = document.getElementById('challenge-startdate-input');
       startDate = (startEl && startEl.value) ? startEl.value : (challengeDraft.startDate || todayStr());
       frequency = 'daily';
+      points = points * durationDays;
     }
 
     if (challengeDraft.id) {
@@ -1094,7 +1096,9 @@
       '<div class="sheet-handle"></div><h2>' + (d.id ? 'Edit Challenge' : 'Add Challenge') + '</h2>' +
       '<div class="field"><label>Title</label><input type="text" id="challenge-title-input" value="' + esc(d.title) + '" oninput="window.__dc.updateChallengeDraft(\'title\', this.value)" placeholder="e.g. Read 15 minutes" /></div>' +
       '<div class="field"><label>Category</label><div class="chip-select">' + catChips + '</div></div>' +
-      '<div class="field"><label>Points' + (isCampaign ? ' (all at once when finished)' : '') + '</label><input type="number" min="1" max="1000" id="challenge-points-input" value="' + d.points + '" oninput="window.__dc.updateChallengeDraft(\'points\', this.value)" /></div>' +
+      '<div class="field"><label>' + (isCampaign ? 'Points per day' : 'Points') + '</label><input type="number" min="1" max="1000" id="challenge-points-input" value="' + d.points + '" oninput="window.__dc.updateChallengeDraft(\'points\', this.value)" />' +
+      (isCampaign ? '<p class="hint" style="margin-top:6px;">= ' + (d.points * (d.durationDays || 30)) + ' points total over ' + (d.durationDays || 30) + ' days</p>' : '') +
+      '</div>' +
       '<div class="toggle-row"><span>🗓️ Multi-day challenge (30, 75 days...)</span><button class="switch ' + (isCampaign ? 'on' : '') + '" data-action="toggle-campaign"></button></div>' +
       frequencySection +
       '<div class="toggle-row"><span>📷 Require photo proof</span><button class="switch ' + (d.requiresPhoto ? 'on' : '') + '" data-action="toggle-photo-required"></button></div>' +
